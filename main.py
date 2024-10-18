@@ -59,7 +59,7 @@ def get_postId_by_user_and_image(user: str, image: str):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("""SELECT * FROM public.post 
                 WHERE image = %s
-                AND user_id = (SELECT Id FROM public.user WHERE Email = %s)""", (image, user))
+                AND email = (SELECT email FROM public.user WHERE Email = %s)""", (image, user))
     post = cur.fetchone()
     conn.close()
     return post
@@ -106,20 +106,20 @@ async def create_user(user: UserCreate) -> dict:
     finally:
         conn.close()
 
-@app.get("/userById/{Id}")
-async def read_user(Id: int) -> dict:
+@app.get("/userByEmail/{email}")
+async def read_user(email: str) -> dict:
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM public.user WHERE Id = %s", (Id,))
+    cur.execute("SELECT name, email FROM public.user WHERE Email = %s", (email,))
     result = cur.fetchone()
 
     if not result:
         raise HTTPException(status_code=404, detail='User does not exist')
     conn.close()
 
-    employees = json.dumps(result, default=str)
-    print(type(json.loads(employees)))
-    return json.loads(employees)
+    user = json.dumps(result, default=str)
+    print(type(json.loads(user)))
+    return json.loads(user)
 
 @app.post("/uploadImage/")
 async def upload_image(
@@ -143,9 +143,9 @@ async def upload_image(
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            INSERT INTO public.post (user_id, image, caption)
+            INSERT INTO public.post (email, image, caption)
             VALUES (%s, %s, %s);
-            """, (user['id'], file.filename, caption))
+            """, (user['email'], file.filename, caption))
         conn.commit()
         return {"message": "Image uploaded and post created successfully"}
     except Error as e:
@@ -178,10 +178,10 @@ async def create_post_comment(comment: Comment,
         
         cur.execute("""
             INSERT INTO public.comment
-            (user_id, post_id, "text")
+            (email, post_id, "text")
             VALUES(%s, %s, %s);
             """, (
-                post['user_id'],
+                post['email'],
                 post['id'],
                 comment.Text
             ))
@@ -194,6 +194,47 @@ async def create_post_comment(comment: Comment,
         raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
     finally:
         conn.close()
+
+@app.get("/postByEmail/{email}")
+async def read_user(email: str) -> list:
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM public.post WHERE email = %s", (email,))
+    result = cur.fetchall()
+
+    if not result:
+        raise HTTPException(status_code=404, detail='User does not exist')
+    conn.close()
+
+    posts = json.dumps(result, default=str)
+    print(type(json.loads(posts)))
+    return json.loads(posts)
+
+@app.get("/commentsByImage/")
+async def read_comments_by_image(credentials: HTTPBasicCredentials = Depends(security),
+                    image: str = Form(...)
+                    ):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    # print(credentials)
+    # print(credentials.username)
+
+    cur.execute("""select * from comment 
+                    where email = %s
+                    and id = (select id from post where 
+                    email = %s and image = %s)""", 
+                
+                (credentials.username, credentials.username, image))
+    
+    result = cur.fetchall()
+
+    if not result:
+        raise HTTPException(status_code=404, detail='User does not exist')
+    conn.close()
+
+    comments = json.dumps(result, default=str)
+    print(type(json.loads(comments)))
+    return json.loads(comments)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
